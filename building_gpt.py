@@ -10,6 +10,7 @@ eval_interval = 300
 learning_rate = 1e-2
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
+n_embed = 32
 # ------------
 
 torch.manual_seed(1337)
@@ -53,7 +54,8 @@ class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size) # for every possible token, weights for next token
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
+        self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
 
@@ -64,7 +66,8 @@ class BigramLanguageModel(nn.Module):
         '''
 
         # idx and targets are both (B,T) tensor of integers
-        logits = self.token_embedding_table(idx) # (B,T,C)
+        tok_emb = self.token_embedding_table(idx) # (B,T,C=n_embed)
+        logits = self.lm_head(tok_emb)            # (B,T,vocab_size)
 
         if targets is None:
             loss = None
