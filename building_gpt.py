@@ -97,6 +97,10 @@ class BigramLanguageModel(nn.Module):
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
 
         self.heads = nn.ModuleList([Head(n_embed//num_heads) for _ in range(num_heads)]) # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
+        self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
+            nn.Linear(n_embed, n_embed),
+            nn.ReLU(),
+        )
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -107,6 +111,7 @@ class BigramLanguageModel(nn.Module):
         x = tok_emb + pos_emb     # (B,T,C)
 
         x = torch.cat([h(x) for h in self.heads], dim=-1)  # (B,T,C), Multi head self attention
+        x = self.ffwd(x)                                   # (B,T,C), Per token level. B,T act as batch dimensions
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
