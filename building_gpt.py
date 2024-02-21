@@ -5,16 +5,16 @@ from torch.nn import functional as F
 '''
 ------------------ Hyperparameters ----------------------------
 '''
-batch_size = 32 # B: how many independent sequences will we process in parallel?
-block_size = 8  # T: what is the maximum context length for predictions?
+batch_size = 64 # B: how many independent sequences will we process in parallel?
+block_size = 256  # T: what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
-learning_rate = 1e-3
+learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embed = 32
-n_head = 4
-n_layer = 4
+n_head = 6
+n_embed = 64*n_head
+n_layer = 6
 dropout = 0.2
 torch.manual_seed(1337)
 
@@ -217,5 +217,5 @@ for iter in range(max_iters):
 '''
 
 context = torch.zeros((1, block_size), dtype=torch.long, device=device)  # start with '\n\n\n\n' as seed
-out_ints = m.generate(context, max_new_tokens=500)[0].tolist() # output list of ints
+out_ints = m.generate(context, max_new_tokens=2000)[0].tolist() # output list of ints
 print(decode(out_ints))
