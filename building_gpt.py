@@ -7,9 +7,9 @@ from torch.nn import functional as F
 '''
 batch_size = 32 # B: how many independent sequences will we process in parallel?
 block_size = 8  # T: what is the maximum context length for predictions?
-max_iters = 3000
-eval_interval = 300
-learning_rate = 1e-2
+max_iters = 5000
+eval_interval = 500
+learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
@@ -55,6 +55,38 @@ def get_batch(split):
 ------------------ Model ----------------------------
 '''
 
+class Head(nn.Module):
+    """ One head of self attention"""
+
+    def __init__(self, head_size):
+        super().__init__()
+        self.key   = nn.Linear(n_embed, head_size, bias=False)
+        self.query = nn.Linear(n_embed, head_size, bias=False)
+        self.value = nn.Linear(n_embed, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+    def forward(self, x):
+        B, T, C  = x.shape
+        '''
+        B - batch               # of independant vectors processed
+        T - time/block/context  # of tokens in a context
+        C - vocab               # of possible tokens
+        '''
+
+        k = self.key(x)   # (B,T,C)
+        q = self.query(x) # (B,T,C)
+
+        # compute attention scores / affinities
+        wei = q @ k.transpose(-2,-1)                                 # (B,T,C) @ (B,C,T) -> (B,T,T)
+        wei /= C**0.5                                                # (B,T,T) scaling, bring variance to 1, to prevent softmax clipping
+        wei  = wei.masked_fill(self.tril[:T,:T]==0, float('-inf'))   # (B,T,T) Replace upper triangular of wei with -inf
+        wei  = F.softmax(wei, dim=-1)                                # (B,T,T) -inf -> 0, rest normalized to 1
+
+        v = self.value(x)  # (B,T,C)
+        out = wei @ v      # (B,T,T) @ (B,T,C) = (B,T,C)
+
+        return out
+
 class BigramLanguageModel(nn.Module):
 
     def __init__(self):
@@ -62,6 +94,8 @@ class BigramLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
+
+        self.sa_head = Head(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -69,13 +103,8 @@ class BigramLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx)                                        # (B,T,C=n_embed)
         pos_emb = self.position_embedding_table(torch.arange(block_size, device=device)) # (T,C): [0,1,2..T-1]
 
-        '''
-        B - batch               # of independant vectors processed
-        T - time/block/context  # of tokens in a context
-        C - vocab               # of possible tokens
-        '''
-
         x = tok_emb + pos_emb     # (B,T,C)
+        x = self.sa_head(x)       # (B,T,C) Apply self attention
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
