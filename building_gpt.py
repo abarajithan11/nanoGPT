@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# hyperparameters
+'''
+------------------ Hyperparameters ----------------------------
+'''
 batch_size = 32 # B: how many independent sequences will we process in parallel?
 block_size = 8  # T: what is the maximum context length for predictions?
 max_iters = 3000
@@ -11,10 +13,11 @@ learning_rate = 1e-2
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
-# ------------
-
 torch.manual_seed(1337)
 
+'''
+------------------ Data Loading ----------------------------
+'''
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
@@ -38,7 +41,6 @@ train_data = data[:n]
 val_data = data[n:]
 
 
-# data loading
 def get_batch(split):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
@@ -48,6 +50,10 @@ def get_batch(split):
     x, y = x.to(device), y.to(device)
     return x, y
 
+
+'''
+------------------ Model ----------------------------
+'''
 
 class BigramLanguageModel(nn.Module):
 
@@ -92,6 +98,9 @@ model = BigramLanguageModel()
 m = model.to(device)
 
 
+'''
+------------------ Training ----------------------------
+'''
 @torch.no_grad()
 def estimate_loss():
     out = {}
@@ -121,7 +130,11 @@ for iter in range(max_iters):
     loss.backward()
     optimizer.step()
 
-# generate from the model
+
+'''
+------------------ Generate Output ----------------------------
+'''
+
 context = torch.zeros((1, 1), dtype=torch.long, device=device)  # start with '\n' as seed
 out_ints = m.generate(context, max_new_tokens=500)[0].tolist() # output list of ints
 print(decode(out_ints))
