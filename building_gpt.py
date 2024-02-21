@@ -109,7 +109,9 @@ class Block(nn.Module):
     def __init__(self, n_embed, n_head): # n_embed: embedding dimension, n_head: number of heads
         super().__init__()
         head_size = n_embed // n_head
+        self.ln1 = nn.LayerNorm(n_embed)   # Layernorm along channels (batch & time are batch dims): y = beta + gamma * [x-E(x)]/sqrt(V(x) + ep)
         self.sa = MultiHeadAttention(n_head, head_size)
+        self.ln2 = nn.LayerNorm(n_embed)
         self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
             nn.Linear(n_embed, n_embed*4),
             nn.ReLU(),
@@ -118,8 +120,9 @@ class Block(nn.Module):
 
     def forward(self, x):
         # Residual connections around MSA & FF, to help training
-        x = x + self.sa(x)                                     # (B,T,C), Multi head self attention
-        x = x + self.ffwd(x)                                   # (B,T,C), Per token level. B,T act as batch dimensions
+        # Note: input without layernorm is added to output
+        x = x + self.sa(self.ln1(x))                                     # (B,T,C), Multi head self attention
+        x = x + self.ffwd(self.ln2(x))                                   # (B,T,C), Per token level. B,T act as batch dimensions
         return x
 
 
@@ -136,6 +139,7 @@ class BigramLanguageModel(nn.Module):
             Block(n_embed, n_head=4),
             Block(n_embed, n_head=4),
         )
+        self.ln_final = nn.LayerNorm(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -145,6 +149,7 @@ class BigramLanguageModel(nn.Module):
 
         x = tok_emb + pos_emb     # (B,T,C)
         x = self.blocks(x)
+        x = self.ln_final(x)      # Layernorm applied before last
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
