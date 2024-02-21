@@ -61,9 +61,13 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
+        self.position_embedding_table = nn.Embedding(block_size, n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
+
+        tok_emb = self.token_embedding_table(idx)                                        # (B,T,C=n_embed)
+        pos_emb = self.position_embedding_table(torch.arange(block_size, device=device)) # (T,C): [0,1,2..T-1]
 
         '''
         B - batch               # of independant vectors processed
@@ -71,9 +75,8 @@ class BigramLanguageModel(nn.Module):
         C - vocab               # of possible tokens
         '''
 
-        # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx) # (B,T,C=n_embed)
-        logits = self.lm_head(tok_emb)            # (B,T,vocab_size)
+        x = tok_emb + pos_emb     # (B,T,C)
+        logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
             loss = None
@@ -87,7 +90,8 @@ class BigramLanguageModel(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):                        # idx is (B, T) array of indices in the current context
-            logits, loss = self(idx)                           # get the predictions
+            idx_cond = idx[:, -block_size:]                    # crop the last block_size tokens for input
+            logits, loss = self(idx_cond)                      # get the predictions
             logits = logits[:, -1, :]                          # (B,T,C) -> (B, C)
             probs = F.softmax(logits, dim=-1)                  # (B, C)
             idx_next = torch.multinomial(probs, num_samples=1) # sample from the distribution acc to prob (B, 1)
@@ -135,6 +139,6 @@ for iter in range(max_iters):
 ------------------ Generate Output ----------------------------
 '''
 
-context = torch.zeros((1, 1), dtype=torch.long, device=device)  # start with '\n' as seed
+context = torch.zeros((1, block_size), dtype=torch.long, device=device)  # start with '\n\n\n\n' as seed
 out_ints = m.generate(context, max_new_tokens=500)[0].tolist() # output list of ints
 print(decode(out_ints))
