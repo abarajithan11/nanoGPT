@@ -13,7 +13,9 @@ learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
-num_heads = 4
+n_head = 4
+n_layer = 4
+dropout = 0.2
 torch.manual_seed(1337)
 
 '''
@@ -65,6 +67,7 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         B, T, C  = x.shape
@@ -82,6 +85,7 @@ class Head(nn.Module):
         wei /= C**0.5                                                # (B,T,T) scaling, bring variance to 1, to prevent softmax clipping
         wei  = wei.masked_fill(self.tril[:T,:T]==0, float('-inf'))   # (B,T,T) Replace upper triangular of wei with -inf
         wei  = F.softmax(wei, dim=-1)                                # (B,T,T) -inf -> 0, rest normalized to 1
+        wei  = self.dropout(wei)
 
         v = self.value(x)  # (B,T,C)
         out = wei @ v      # (B,T,T) @ (B,T,C) = (B,T,C)
@@ -90,16 +94,18 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, head_size):
+    def __init__(self, n_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([      # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
-            Head(head_size) for _ in range(num_heads)
+            Head(head_size) for _ in range(n_heads)
             ])
         self.proj = nn.Linear(n_embed, n_embed)
+        self.dropout = nn.Dropout(dropout)
         
     def forward(self, x):
         x = torch.cat([h(x) for h in self.heads], dim=-1)
         x = self.proj(x)
+        x = self.dropout(x)
         return x
 
 
@@ -116,6 +122,7 @@ class Block(nn.Module):
             nn.Linear(n_embed, n_embed*4),
             nn.ReLU(),
             nn.Linear(n_embed*4, n_embed),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):
@@ -134,11 +141,7 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
 
-        self.blocks  = nn.Sequential(
-            Block(n_embed, n_head=4),
-            Block(n_embed, n_head=4),
-            Block(n_embed, n_head=4),
-        )
+        self.blocks  = nn.Sequential(*[Block(n_embed, n_head) for _ in range(n_layer)])
         self.ln_final = nn.LayerNorm(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
