@@ -13,6 +13,7 @@ learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
+num_heads = 4
 torch.manual_seed(1337)
 
 '''
@@ -95,7 +96,7 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
 
-        self.sa_head = Head(n_embed)
+        self.heads = nn.ModuleList([Head(n_embed//num_heads) for _ in range(num_heads)]) # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -104,7 +105,8 @@ class BigramLanguageModel(nn.Module):
         pos_emb = self.position_embedding_table(torch.arange(block_size, device=device)) # (T,C): [0,1,2..T-1]
 
         x = tok_emb + pos_emb     # (B,T,C)
-        x = self.sa_head(x)       # (B,T,C) Apply self attention
+
+        x = torch.cat([h(x) for h in self.heads], dim=-1)  # (B,T,C), Multi head self attention
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
