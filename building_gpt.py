@@ -88,6 +88,18 @@ class Head(nn.Module):
 
         return out
 
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([      # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
+            Head(head_size) for _ in range(num_heads)
+            ])
+        
+    def forward(self, x):
+        x = torch.cat([h(x) for h in self.heads], dim=-1)
+        return x
+
 
 class Block(nn.Module):
     ''' Transformer block: communication followed by computation '''
@@ -95,10 +107,7 @@ class Block(nn.Module):
     def __init__(self, n_embed, n_head): # n_embed: embedding dimension, n_head: number of heads
         super().__init__()
         head_size = n_embed // n_head
-
-        self.heads = nn.ModuleList([      # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
-            Head(head_size) for _ in range(num_heads)
-            ])
+        self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
             nn.Linear(n_embed, n_embed),
             nn.ReLU(),
@@ -106,7 +115,7 @@ class Block(nn.Module):
 
     def forward(self, x):
         # Residual connections around MSA & FF, to help training
-        x = x + torch.cat([h(x) for h in self.heads], dim=-1)  # (B,T,C), Multi head self attention
+        x = x + self.sa(x)                                     # (B,T,C), Multi head self attention
         x = x + self.ffwd(x)                                   # (B,T,C), Per token level. B,T act as batch dimensions
         return x
 
