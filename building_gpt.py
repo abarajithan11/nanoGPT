@@ -88,6 +88,29 @@ class Head(nn.Module):
 
         return out
 
+
+class Block(nn.Module):
+    ''' Transformer block: communication followed by computation '''
+
+    def __init__(self, n_embed, n_head): # n_embed: embedding dimension, n_head: number of heads
+        super().__init__()
+        head_size = n_embed // n_head
+
+        self.heads = nn.ModuleList([      # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
+            Head(head_size) for _ in range(num_heads)
+            ])
+        self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
+            nn.Linear(n_embed, n_embed),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        # Residual connections around MSA & FF, to help training
+        x = x + torch.cat([h(x) for h in self.heads], dim=-1)  # (B,T,C), Multi head self attention
+        x = x + self.ffwd(x)                                   # (B,T,C), Per token level. B,T act as batch dimensions
+        return x
+
+
 class BigramLanguageModel(nn.Module):
 
     def __init__(self):
@@ -96,10 +119,10 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # for every possible token, weights for next token
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
 
-        self.heads = nn.ModuleList([Head(n_embed//num_heads) for _ in range(num_heads)]) # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
-        self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
-            nn.Linear(n_embed, n_embed),
-            nn.ReLU(),
+        self.blocks  = nn.Sequential(
+            Block(n_embed, n_head=4),
+            Block(n_embed, n_head=4),
+            Block(n_embed, n_head=4),
         )
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
@@ -109,9 +132,7 @@ class BigramLanguageModel(nn.Module):
         pos_emb = self.position_embedding_table(torch.arange(block_size, device=device)) # (T,C): [0,1,2..T-1]
 
         x = tok_emb + pos_emb     # (B,T,C)
-
-        x = torch.cat([h(x) for h in self.heads], dim=-1)  # (B,T,C), Multi head self attention
-        x = self.ffwd(x)                                   # (B,T,C), Per token level. B,T act as batch dimensions
+        x = self.blocks(x)
         logits = self.lm_head(x)  # (B,T,vocab_size)
 
         if targets is None:
