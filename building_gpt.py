@@ -95,9 +95,11 @@ class MultiHeadAttention(nn.Module):
         self.heads = nn.ModuleList([      # 4 heads of 8-dimensional self-attention, for n_embed=32, like a group convolution
             Head(head_size) for _ in range(num_heads)
             ])
+        self.proj = nn.Linear(n_embed, n_embed)
         
     def forward(self, x):
         x = torch.cat([h(x) for h in self.heads], dim=-1)
+        x = self.proj(x)
         return x
 
 
@@ -109,8 +111,9 @@ class Block(nn.Module):
         head_size = n_embed // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = nn.Sequential(         # Feedforward network, so the tokens can "think about" what they found in attention.
-            nn.Linear(n_embed, n_embed),
+            nn.Linear(n_embed, n_embed*4),
             nn.ReLU(),
+            nn.Linear(n_embed*4, n_embed),
         )
 
     def forward(self, x):
